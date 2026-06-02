@@ -1,0 +1,46 @@
+<!DOCTYliE html>
+<html lang="en">
+  <head>
+    <style>
+        #nav-bar {
+            display: grid;
+            grid-template-rows: 1fr 2fr;
+        }
+
+        #nav-menu ul {
+            display: flex;
+            justify-content: center;
+            list-style-type: none;
+            gap: 20px;
+        }
+    </style>
+  </head>
+  <body>
+    <div id="nav-bar">
+      <h2>
+        corner shelf
+      </h2>
+
+      <div id="nav-menu">
+        <ul>
+          <li>
+            <a href="{{ url_for('view_my_shelves') }}"> my shelves </a>
+          </li>
+          <li>
+            <a href="{{ url_for('view_shared_shelves') }}"> shared shelves </a>
+          </li>
+          <li>
+            <a href="#"> notes </a>
+          </li>
+          <li>
+            <a href="{{ url_for('create_shelf') }}"> create new shelf </a>
+          </li>
+          <li>
+            <a href="{{ url_for('logout') }}"> sign out </a>
+          </li>
+        </ul>
+      </div>
+
+    </div>
+  </body>
+</html>

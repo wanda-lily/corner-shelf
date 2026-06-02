@@ -1,0 +1,17 @@
+{% extends 'layout/base.html' %}
+{% block content %}
+  <form method="POST">
+    {{ form.hidden_tag() }}
+    <div class="mb-3">
+      {{ form.name.label(class="form-label") }}
+      {{ form.name(class="form-control") }}
+    </div>
+    <div class="mb-3">
+      {{ form.shelf_type.label(class="form-label") }}
+      {{ form.shelf_type(class="form-select") }}
+    </div>
+    <button type="submit" class="btn btn-primary">
+      Submit
+    </button>
+  </form>
+{% endblock %}

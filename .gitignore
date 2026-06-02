@@ -1,0 +1,6 @@
+html5up-astral/
+__pycache__/
+.env
+venv/
+instance/
+models/__pycache__

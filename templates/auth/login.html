@@ -1,0 +1,37 @@
+{% extends 'layout/base.html' %}
+{% from 'bootstrap5/form.html' import render_form %}
+
+{% block content %}
+
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      {% for message in messages %}
+        <p>
+          {{ message }}
+        </p>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <form method="POST">
+    {{ form.hidden_tag() }}
+    <div class="mb-3">
+      {{ form.email.label(class="form-label") }}
+      {{ form.email(class="form-control") }}
+    </div>
+    <div class="mb-3">
+      {{ form.password.label(class="form-label") }}
+      {{ form.password(class="form-control") }}
+    </div>
+    <div class="mb-3 form-check">
+      {{ form.remember.label(class="form-check-label") }}
+      {{ form.remember(class="form-check-input") }}
+    </div>
+    <button type="submit" class="btn btn-primary">
+      log in
+    </button>
+  </form>
+  <p>
+    <a href="{{ url_for('register') }}">sign up</a>
+  </p>
+{% endblock %}

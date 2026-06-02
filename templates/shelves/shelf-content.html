@@ -1,0 +1,10 @@
+{% extends 'layout/base.html' %}
+{% from 'bootstrap5/form.html' import render_form %}
+
+{% block content %}
+  {# get list of shelf items #}
+  {% for entry in shelf.entries %}
+    {{ entry.id }}
+  {% endfor %}
+
+{% endblock %}
