@@ -1,4 +1,3 @@
-<!-- base.html -->
 <!DOCTYPE html>
 <html>
   <head>
@@ -10,10 +9,14 @@
   </head>
   <body>
 
+    {% include "layout/header.html" %}
+
     <main>
       {% block content %}
-      {% endblock %}
+      {% endblock content %}
     </main>
+
+    {% include "layout/footer.html" %}
 
   </body>
 </html>

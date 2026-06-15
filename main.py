@@ -1,3 +1,4 @@
+from bs4 import BeautifulSoup
 from datetime import timedelta
 from dotenv import load_dotenv
 from flask import Flask, render_template, redirect, url_for, flash, request
@@ -5,11 +6,13 @@ from flask_bootstrap import Bootstrap5
 from flask_login import login_user, LoginManager, login_required, current_user, logout_user
 from flask_wtf import CSRFProtect
 from forms import *
-from models.book import Book, Tag
+import html
+from models.book import Book, Tag, Author
 from models.db import db
 from models.user import User
 from models.shelf import Shelf, ShelfEntry, ShelfParticipant, ShelfRole, ShelfType
 import os
+import re
 import requests
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -52,18 +55,18 @@ def load_user(user_id):
     return db.get_or_404(User, user_id)
 
 
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------------------------------------------------------
 # Routes
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------------------------------------------------------
 
 @app.route('/')
 def home():
     return render_template("index.html")
 
 
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------------------------------------------------------
 # Making and Editing Shelves
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------------------------------------------------------
 
 @app.route('/create-shelf', methods=["GET", "POST"])
 @login_required
@@ -153,9 +156,29 @@ def open_shelf(shelf_id):
     shelf = db.get_or_404(Shelf, shelf_id)
     return render_template("shelves/shelf-content.html", shelf=shelf)
 
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------------------------------------------------------
 # Adding Books
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+def clean_description(text):
+    if not text:
+        return ""
+    text = html.unescape(text)
+    soup = BeautifulSoup(text, "html.parser")
+    for br in soup.find_all("br"):
+        br.replace_with("\n")
+    cleaned = soup.get_text()
+    return re.sub(r"\n+", "\n", cleaned).strip()
+
+
+def get_or_create_author(name):
+    name = name.strip()
+    author = Author.query.filter_by(name=name).first()
+    if not author:
+        author = Author(name=name)
+        db.session.add(author)
+    return author
 
 
 def get_book(query):
@@ -171,8 +194,8 @@ def get_book(query):
         volume = item.get("volumeInfo", {})
         books.append({
             "title": volume.get("title"),
-            "authors": volume.get("authors", []),
-            "description": volume.get("description"),
+            "authors": [get_or_create_author(name) for name in volume.get("authors", [])],
+            "description": clean_description(volume.get("description")),
             "thumbnail": volume.get("imageLinks", {}).get("thumbnail"),
             "google_books_id": item.get("id")
         })
@@ -180,124 +203,131 @@ def get_book(query):
     return books
 
 
-@app.route('/add-book-to-shelf/<int:shelf_id>', methods=["GET", "POST"])
-def add_book_shelf(shelf_id):
+def get_book_by_id(book_id):
+    books_api_key = os.getenv("GOOGLE_BOOKS_API_KEY")
+    url = f"https://www.googleapis.com/books/v1/volumes/{book_id}?key={books_api_key}"
+
+    response = requests.get(url)
+
+    if response.status_code != 200:
+        return None
+
+    data = response.json()
+    volume = data.get("volumeInfo", {})
+
+    return {
+        "title": volume.get("title"),
+        "authors": [get_or_create_author(name) for name in volume.get("authors", [])],
+        "description": clean_description(volume.get("description")),
+        "thumbnail": volume.get("imageLinks", {}).get("thumbnail"),
+        "google_books_id": data.get("id")
+    }
+
+
+@app.route('/add-book-from-api/<int:shelf_id>', methods=["GET", "POST"])
+def add_book_from_api(shelf_id):
     search_form = SearchBookForm()
-    book_form = BookForm()
     books = []
 
     if search_form.validate_on_submit():
         query = search_form.search.data
         books = get_book(query)
-
     shelf = db.get_or_404(Shelf, shelf_id)
-
     return render_template(
-        "books/add-book-to-shelf.html",
+        "books/search-book-api.html",
         form=search_form,
         books=books,
         shelf=shelf,
-        book_form=book_form
     )
 
 
-@app.route('/add-selected-book/<int:shelf_id>', methods=["POST"])
-def add_selected_book(shelf_id):
+@app.route('/prepare-book/<int:shelf_id>/<book_id>')
+def prepare_book(shelf_id, book_id):
+
     shelf = db.get_or_404(Shelf, shelf_id)
 
-    title = request.form.get("title")
-    author = request.form.get("author")
-    thumbnail = request.form.get("thumbnail")
+    book_data = get_book_by_id(book_id)
+    if not book_data:
+        return redirect(url_for("add_book_from_api", shelf_id=shelf_id))
 
-    # create book
-    book = Book(
-        title=title,
-        author=author,
-        cover_url=thumbnail
+    book_form = BookForm(
+        title=book_data["title"],
+        author=",".join(a.name for a in book_data.get("authors", [])),
+        description=book_data.get("description"),
+        cover_url=book_data.get("thumbnail"),
+        google_books_id=book_id
     )
 
+    return render_template(
+        "books/add-book-to-shelf.html",
+        book_form=book_form,
+        shelf=shelf
+    )
+
+
+def get_or_create_author(name):
+    name = name.strip()
+    author = db.session.scalar(db.select(Author).where(Author.name == name))
+    if not author:
+        author = Author(name=name)
+        db.session.add(author)
+    return author
+
+
+def get_or_create_book(book_data):
+    google_id = book_data["google_books_id"]
+    book = db.session.scalar(
+        db.select(Book).where(Book.google_books_id == google_id)
+    )
+    if book:
+        return book
+
+    # remove from dict before unpacking
+    author_names = book_data.pop("authors", [])
+    book = Book(**book_data)
     db.session.add(book)
-    db.session.flush()  # get book.id
 
-    # create shelf entry
-    entry = ShelfEntry(
-        shelf_id=shelf.id,
-        book_id=book.id,
-        added_by=current_user.id
-    )
+    # handle authors as a list or a comma-separated string
+    if isinstance(author_names, str):
+        author_names = [a.strip() for a in author_names.split(",")]
+    book.authors = [get_or_create_author(name)
+                    for name in author_names if name]
 
-    db.session.add(entry)
-    db.session.commit()
-
-    return redirect(url_for("view_shelf", shelf_id=shelf.id))
+    db.session.flush()
+    return book
 
 
-@app.route('/add-manual-book/<int:shelf_id>', methods=["POST"])
-def add_manual_book(shelf_id):
+@app.route('/add-book-to-shelf/<int:shelf_id>', methods=["POST"])
+@login_required
+def add_book_to_shelf(shelf_id):
     form = BookForm()
 
     if not form.validate_on_submit():
-        return redirect(request.url)
-
-    book = Book(
-        title=form.title.data,
-        author=form.author.data,
-        cover_url=form.cover_url.data,
-        description=form.description.data
-    )
-
-    db.session.add(book)
-    db.session.flush()
-
-    entry = ShelfEntry(
-        shelf_id=shelf_id,
-        book_id=book.id,
-        added_by=current_user.id
-    )
-
-    db.session.add(entry)
-    db.session.commit()
-
-    return redirect(url_for("view_shelf", shelf_id=shelf_id))
-
-
-@app.route("/api/add-book/<int:shelf_id>", methods=["POST"])
-@login_required
-def api_add_book(shelf_id):
-    data = request.get_json()
-
-    google_id = data.get("google_books_id")
-
-    # check if book already exists globally
-    if google_id:
-        book = db.session.scalar(
-            db.select(Book).where(Book.google_books_id == google_id)
+        return render_template(
+            "books/add-book-to-shelf.html",
+            book_form=form
         )
-    else:
-        book = None
 
-    if not book:
-        book = Book(
-            title=data.get("title"),
-            author=data.get("author"),
-            cover_url=data.get("thumbnail"),
-            google_books_id=google_id
-        )
-        db.session.add(book)
-        db.session.flush()
+    book = get_or_create_book({
+        "title": form.title.data,
+        "authors": form.author.data,
+        "description": form.description.data,
+        "cover_url": form.cover_url.data,
+        "google_books_id": form.google_books_id.data,
+    })
 
-    # check if already on this shelf
-    existing_entry = db.session.scalar(
+    # prevent duplicate shelf entry
+    existing = db.session.scalar(
         db.select(ShelfEntry).where(
             ShelfEntry.shelf_id == shelf_id,
             ShelfEntry.book_id == book.id
         )
     )
 
-    if existing_entry:
-        return {"status": "exists"}
+    if existing:
+        flash("Book already exists on this shelf.")
+        return redirect(url_for("open_shelf", shelf_id=shelf_id))
 
-    # add to shelf
     entry = ShelfEntry(
         shelf_id=shelf_id,
         book_id=book.id,
@@ -307,37 +337,12 @@ def api_add_book(shelf_id):
     db.session.add(entry)
     db.session.commit()
 
-    return {"status": "added"}
+    return redirect(url_for("open_shelf", shelf_id=shelf_id))
 
 
-@app.route("/api/search-books")
-@login_required
-def search_books():
-    query = request.args.get("q", "")
-
-    # google books call
-    books = get_book(query)
-
-    # get existing book IDs in THIS shelf
-    shelf_id = request.args.get("shelf_id")
-
-    existing_ids = set()
-
-    if shelf_id:
-        existing_ids = {
-            b.google_books_id
-            for (b,) in db.session.query(Book)
-            .join(ShelfEntry)
-            .filter(ShelfEntry.shelf_id == shelf_id)
-            .all()
-            if b.google_books_id
-        }
-
-    # mark books as already added
-    for b in books:
-        b["already_added"] = b.get("google_books_id") in existing_ids
-
-    return books
+# ------------------------------------------------------------------------------------------------------------------------------------------------------
+# Adding Notes
+# ------------------------------------------------------------------------------------------------------------------------------------------------------
 
 
 @app.route('/add-note-to-book')
@@ -345,9 +350,9 @@ def add_book_note():
     return render_template("index.html")
 
 
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------------------------------------------------------
 # Authentication
-# ---------------------------------------------------------------------------
+# ------------------------------------------------------------------------------------------------------------------------------------------------------
 
 @app.route('/login', methods=["GET", "POST"])
 def login():
@@ -389,35 +394,35 @@ def register():
         )
         user = result.scalar()
 
-    if user:
-        flash("You've already signed up with that email, log in instead!")
-        print("Query result:", user)
-        return redirect(url_for('login'))
+        if user:
+            flash("You've already signed up with that email, log in instead!")
+            print("Query result:", user)
+            return redirect(url_for('login'))
 
-    # Hash password
-    hash_and_salted_password = generate_password_hash(
-        form.password.data,
-        method='pbkdf2:sha256',
-        salt_length=8
-    )
+        # Hash password
+        hash_and_salted_password = generate_password_hash(
+            form.password.data,
+            method='pbkdf2:sha256',
+            salt_length=8
+        )
 
-    # Create new user
-    new_user = User(
-        email=form.email.data,
-        password_hash=hash_and_salted_password,
-        name=form.name.data,
-    )
+        # Create new user
+        new_user = User(
+            email=form.email.data,
+            password_hash=hash_and_salted_password,
+            name=form.name.data,
+        )
 
-    try:
-        db.session.add(new_user)
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        print("DB Error:", e)
-        flash("An error occurred while creating your account.")
+        try:
+            db.session.add(new_user)
+            db.session.commit()
+            login_user(new_user)
+            return redirect(url_for("home"))
 
-        login_user(new_user)
-        return redirect(url_for("home"))
+        except Exception as e:
+            db.session.rollback()
+            print("DB Error:", e)
+            flash("An error occurred while creating your account.")
 
     return render_template("auth/register.html", form=form)
 

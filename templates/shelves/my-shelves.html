@@ -4,7 +4,7 @@
 {% block content %}
   {# get list of shelf items #}
   {% for shelf in shelves %}
-    {{ shelf.name }}
+    <a href="{{ url_for('open_shelf', shelf_id=shelf.id) }}">{{ shelf.name }}</a>
   {% endfor %}
 
   <a href="{{ url_for('create_shelf') }}">

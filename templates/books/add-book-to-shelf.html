@@ -1,204 +1,38 @@
-{% extends 'layout/base.html' %}
+{% extends "layout/base.html" %}
 {% block content %}
-
-  <h2>
+  <h3>
     {{ shelf.name }}
-  </h2>
+  </h3>
 
-  <!--Open Modal -->
-  <button class="btn btn-primary mb-3"
-          data-bs-toggle="modal"
-          data-bs-target="#bookModal">
-    Add Book
-  </button>
+  <form method="POST"
+        action="{{ url_for('add_book_to_shelf', shelf_id=shelf.id) }}">
+    {{ book_form.hidden_tag() }}
 
-  <!-- MODAL -->
-  <div class="modal fade" id="bookModal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-      <div class="modal-content p-3">
+    {{ book_form.title.label }}
+    {{ book_form.title() }}
 
-        <h5>
-          Search Books
-        </h5>
+    {{ book_form.author.label }}
+    {{ book_form.author() }}
 
-        <!-- Search -->
-        <input id="searchInput"
-               class="form-control mb-3"
-               placeholder="Search books...">
+    {{ book_form.description.label }}
+    {{ book_form.description() }}
 
-        <!-- Results -->
-        <div id="results">
-        </div>
+    {{ book_form.cover_url.label }}
+    {{ book_form.cover_url() }}
 
-        <hr>
+    {{ book_form.google_books_id.label }}
+    {{ book_form.google_books_id() }}
 
-        <!-- MANUAL ADD -->
-        <h5>
-          Or add manually
-        </h5>
-
-        <form method="POST"
-              action="{{ url_for('add_manual_book', shelf_id=shelf.id) }}">
-          {{ book_form.hidden_tag() }}
-
-          <div class="mb-2">
-            {{ book_form.title.label }}
-            {{ book_form.title(class="form-control") }}
-          </div>
-
-          <div class="mb-2">
-            {{ book_form.author.label }}
-            {{ book_form.author(class="form-control") }}
-          </div>
-
-          <div class="mb-2">
-            {{ book_form.cover_url.label }}
-            {{ book_form.cover_url(class="form-control") }}
-          </div>
-
-          <button class="btn btn-secondary mt-2">
-            Add Manually
-          </button>
-        </form>
-
-      </div>
-    </div>
-  </div>
-
-  <!-- Toast container -->
-  <div id="toast-container"
-       style="position: fixed;
-              bottom: 20px;
-              right: 20px;
-              z-index: 9999">
-  </div>
-
-  <script>
-      let timeout = null;
-
-      // =====================
-      // LIVE SEARCH
-      // =====================
-      document.getElementById("searchInput").addEventListener("input", function() {
-          clearTimeout(timeout);
-
-          timeout = setTimeout(async () => {
-              const query = this.value.trim();
-              if (!query) return;
-
-              const res = await fetch(`/api/search-books?q=${query}&shelf_id={{ shelf.id }}`);
-              const books = await res.json();
-
-              const resultsDiv = document.getElementById("results");
-              resultsDiv.innerHTML = "";
-
-              books.forEach(book => {
-
-                  const isAdded = book.already_added;
-
-                  const buttonHTML = isAdded ?
-                      `<button class="btn btn-sm btn-success" disabled>✓ Added</button>` :
-                      `<button class="btn btn-sm btn-primary" onclick='addBook(${JSON.stringify(book)}, this)'>
-                        Add
-                   </button>`;
-
-                  resultsDiv.innerHTML += `
-                <div class="d-flex justify-content-between align-items-center border p-2 mb-2 rounded">
-
-                    <div class="d-flex align-items-center">
-                        <img src="${book.thumbnail || ''}" width="40" class="me-2">
-                        <div>
-                            <strong>${book.title}</strong><br>
-                            <small>${book.authors ? book.authors.join(", ") : ""}</small>
-                        </div>
-                    </div>
-
-                    ${buttonHTML}
-
-                </div>
-            `;
-              });
-
-          }, 300);
-      });
+    <button type="submit">
+      Add Book to Shelf
+    </button>
+  </form>
 
 
-      // =====================
-      // ADD BOOK
-      // =====================
-      async function addBook(book, button) {
+  {% for book in books %}
+    <p>
+      {{ book.title }} {{ book.authors }}
+    </p>
+  {% endfor %}
 
-          const response = await fetch("/api/add-book/{{ shelf.id }}", {
-              method: "POST",
-              headers: {
-                  "Content-Type": "application/json"
-              },
-              body: JSON.stringify(book)
-          });
-
-          const data = await response.json();
-
-          if (data.status === "exists") {
-              showToast("Already in shelf 📚");
-              return;
-          }
-
-          if (data.status === "added") {
-              // update button instantly
-              button.innerText = "✓ Added";
-              button.classList.remove("btn-primary");
-              button.classList.add("btn-success");
-              button.disabled = true;
-
-              showUndoToast(data.entry_id);
-          }
-      }
-
-
-      // =====================
-      // TOAST
-      // =====================
-      function showToast(message) {
-          const toast = document.createElement("div");
-          toast.className = "alert alert-info shadow";
-          toast.innerText = message;
-
-          document.getElementById("toast-container").appendChild(toast);
-
-          setTimeout(() => toast.remove(), 2000);
-      }
-
-
-      // =====================
-      // UNDO TOAST
-      // =====================
-      function showUndoToast(entryId) {
-          const toast = document.createElement("div");
-          toast.className = "alert alert-success shadow";
-
-          toast.innerHTML = `
-        Book added
-        <button class="btn btn-sm btn-light ms-2" onclick="undoAdd(${entryId})">
-            Undo
-        </button>
-    `;
-
-          document.getElementById("toast-container").appendChild(toast);
-
-          setTimeout(() => toast.remove(), 5000);
-      }
-
-
-      // =====================
-      // UNDO
-      // =====================
-      async function undoAdd(entryId) {
-          await fetch(`/api/remove-entry/${entryId}`, {
-              method: "POST"
-          });
-
-          showToast("Removed");
-      }
-  </script>
-
-{% endblock %}
+{% endblock content %}

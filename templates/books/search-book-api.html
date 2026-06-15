@@ -1,0 +1,25 @@
+{% extends "layout/base.html" %}
+{% block content %}
+  <h3>
+    {{ shelf.name }}
+  </h3>
+
+  <form method="POST">
+    {{ form.hidden_tag() }}
+
+    {{ form.search.label }}
+    {{ form.search() }}
+
+    <button type="submit">
+      Search
+    </button>
+  </form>
+
+
+  {% for book in books %}
+    <a href="{{ url_for('prepare_book', shelf_id=shelf.id, book_id=book.google_books_id) }}">
+      {{ book.title }} - {{ book.authors }}
+    </a>
+  {% endfor %}
+
+{% endblock content %}

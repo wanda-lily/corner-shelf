@@ -12,6 +12,24 @@ book_tags = db.Table(
 )
 
 
+book_authors = db.Table(
+    "book_authors",
+    db.Column("book_id", db.Integer, db.ForeignKey(
+        "book.id"), primary_key=True),
+    db.Column("author_id", db.Integer, db.ForeignKey(
+        "author.id"), primary_key=True),
+)
+
+
+class Author(db.Model):
+    __tablename__ = "author"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), unique=True, nullable=False)
+
+    books = db.relationship(
+        "Book", secondary=book_authors, back_populates="authors")
+
+
 class Tag(db.Model):
     __tablename__ = "tag"
 
@@ -26,7 +44,6 @@ class Book(db.Model):
 
     id = db.Column(db.Integer,     primary_key=True)
     title = db.Column(db.String(200), nullable=False)
-    author = db.Column(db.String(100))
     cover_url = db.Column(db.String(500))
     description = db.Column(db.Text)
     google_books_id = db.Column(db.String(20),  unique=True, index=True)
@@ -36,3 +53,6 @@ class Book(db.Model):
     reading_logs = db.relationship("ReadingLog", back_populates="book")
     tags = db.relationship("Tag", secondary=book_tags, back_populates="books")
     notes = db.relationship("BookNote", back_populates="book")
+
+    authors = db.relationship(
+        "Author", secondary=book_authors, back_populates="books")
